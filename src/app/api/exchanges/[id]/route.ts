@@ -15,8 +15,12 @@ export async function GET(
     }
 
     const participants = getParticipants(id);
-    const adminPin = req.headers.get('x-admin-pin');
-    const isAdmin = adminPin && adminPin === exchange.adminPin;
+    const adminPin = req.headers.get('x-admin-pin')?.trim();
+    const isAdmin = !!adminPin && adminPin === exchange.adminPin?.trim();
+
+    if (adminPin && !isAdmin) {
+      return NextResponse.json({ error: 'El PIN ingresado es incorrecto' }, { status: 401 });
+    }
 
     if (isAdmin) {
       // Admin data: Verifies that everyone has an assignment and emails sent,
@@ -114,8 +118,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });
     }
 
-    const adminPin = req.headers.get('x-admin-pin');
-    if (!adminPin || adminPin !== exchange.adminPin) {
+    const adminPin = req.headers.get('x-admin-pin')?.trim();
+    if (!adminPin || adminPin !== exchange.adminPin?.trim()) {
       return NextResponse.json({ error: 'PIN de administrador incorrecto' }, { status: 401 });
     }
 

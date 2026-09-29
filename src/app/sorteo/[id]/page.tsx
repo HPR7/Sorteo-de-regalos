@@ -60,7 +60,26 @@ export default function ParticipantRegistrationPage() {
   const fetchExchange = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch(`/api/exchanges/${exchangeId}`);
+      let res = await fetch(`/api/exchanges/${exchangeId}`);
+
+      // If 404, check if localStorage has local cached exchange to sync
+      if (res.status === 404 && typeof window !== 'undefined') {
+        const cachedStr = localStorage.getItem(`exchange_${exchangeId}`);
+        if (cachedStr) {
+          try {
+            const cachedExchange = JSON.parse(cachedStr);
+            await fetch('/api/exchanges/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ exchange: cachedExchange }),
+            });
+            res = await fetch(`/api/exchanges/${exchangeId}`);
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       if (!res.ok) {
         throw new Error('No se pudo encontrar el intercambio de regalos.');
       }

@@ -59,12 +59,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      exchange: {
-        id: newExchange.id,
-        title: newExchange.title,
-        targetCount: newExchange.targetCount,
-        status: newExchange.status,
-      }
+      exchange: newExchange,
     }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Error interno del servidor' }, { status: 500 });

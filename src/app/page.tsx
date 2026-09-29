@@ -70,11 +70,16 @@ export default function HomePage() {
         throw new Error(data.error || 'Error al crear el sorteo');
       }
 
+      if (data.exchange && typeof window !== 'undefined') {
+        localStorage.setItem(`exchange_${data.exchange.id}`, JSON.stringify(data.exchange));
+        localStorage.setItem(`admin_pin_${data.exchange.id}`, formData.adminPin.trim());
+      }
+
       setCreatedExchange({
         id: data.exchange.id,
         title: data.exchange.title,
         targetCount: data.exchange.targetCount,
-        pin: formData.adminPin,
+        pin: formData.adminPin.trim(),
       });
     } catch (err: any) {
       setErrorMessage(err.message || 'Error de conexión');

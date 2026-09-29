@@ -92,11 +92,35 @@ export default function AdminDashboardPage() {
     setIsLoading(true);
     setAuthError('');
     try {
-      const res = await fetch(`/api/exchanges/${exchangeId}`, {
+      const cleanPin = pinToUse.trim();
+      let res = await fetch(`/api/exchanges/${exchangeId}`, {
         headers: {
-          'x-admin-pin': pinToUse,
+          'x-admin-pin': cleanPin,
         },
       });
+
+      // If serverless instance was cold and returned 404, check if localStorage has exchange backup
+      if (res.status === 404 && typeof window !== 'undefined') {
+        const cachedStr = localStorage.getItem(`exchange_${exchangeId}`);
+        if (cachedStr) {
+          try {
+            const cachedExchange = JSON.parse(cachedStr);
+            await fetch('/api/exchanges/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ exchange: cachedExchange }),
+            });
+            // Retry fetch with admin pin
+            res = await fetch(`/api/exchanges/${exchangeId}`, {
+              headers: {
+                'x-admin-pin': cleanPin,
+              },
+            });
+          } catch {
+            // ignore sync errors
+          }
+        }
+      }
 
       if (res.status === 401) {
         setIsAuthenticated(false);
@@ -105,8 +129,16 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      if (res.status === 404) {
+        setIsAuthenticated(false);
+        setAuthError(`No se encontró el sorteo "${exchangeId}". Verifica que el ID sea el correcto.`);
+        setIsLoading(false);
+        return;
+      }
+
       if (!res.ok) {
-        throw new Error('Error al cargar datos del sorteo');
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al cargar datos del sorteo');
       }
 
       const data = await res.json();
@@ -118,7 +150,7 @@ export default function AdminDashboardPage() {
         setSmtpForm(data.exchange.smtpConfig);
       }
       setIsAuthenticated(true);
-      localStorage.setItem(`admin_pin_${exchangeId}`, pinToUse);
+      localStorage.setItem(`admin_pin_${exchangeId}`, cleanPin);
       
       if (data.exchange.status === 'completed' && activeTab === 'participants') {
         setActiveTab('verification');
