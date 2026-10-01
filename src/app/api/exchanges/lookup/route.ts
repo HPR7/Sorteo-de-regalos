@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getExchanges, getParticipants } from '@/lib/db';
+import { getExchanges, getParticipants, saveExchange } from '@/lib/db';
+import { Exchange } from '@/types';
 
 export async function POST(req: NextRequest) {
   try {
-    const { identifier, pin } = await req.json();
+    const body = await req.json();
+    const { identifier, pin, clientBackups } = body;
 
     if (!identifier?.trim()) {
       return NextResponse.json(
         { error: 'Por favor ingresa el ID del sorteo o tu correo de administrador.' },
         { status: 400 }
       );
+    }
+
+    // Ingest any client-side cached backups to synchronize serverless instances
+    if (Array.isArray(clientBackups) && clientBackups.length > 0) {
+      clientBackups.forEach((b: Exchange) => {
+        if (b && b.id && b.title) {
+          saveExchange(b);
+        }
+      });
     }
 
     const cleanId = identifier.trim();
@@ -84,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: `No se encontró ningún sorteo registrado con el ID o correo "${cleanId}".` },
+      { error: `No se encontró ningún sorteo registrado con el ID o correo "${cleanId}". Si creaste un sorteo anteriormente con el error de servidor anterior, crea uno nuevo y quedará guardado correctamente.` },
       { status: 404 }
     );
   } catch (err: any) {

@@ -107,10 +107,28 @@ export default function HomePage() {
 
     setIsAccessing(true);
     try {
+      // Gather local backups from localStorage
+      const clientBackups: any[] = [];
+      if (typeof window !== 'undefined') {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('exchange_')) {
+            try {
+              const val = JSON.parse(localStorage.getItem(key) || '{}');
+              if (val && val.id) {
+                clientBackups.push(val);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+
       const res = await fetch('/api/exchanges/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: cleanIdentifier, pin: cleanPin }),
+        body: JSON.stringify({ identifier: cleanIdentifier, pin: cleanPin, clientBackups }),
       });
 
       const data = await res.json();
