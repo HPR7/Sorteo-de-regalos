@@ -52,6 +52,9 @@ export default function HomePage() {
   const [accessId, setAccessId] = useState('');
   const [accessPin, setAccessPin] = useState('');
   const [accessError, setAccessError] = useState('');
+  const [isAccessing, setIsAccessing] = useState(false);
+  const [multipleExchanges, setMultipleExchanges] = useState<{ id: string; title: string; status: string }[] | null>(null);
+  const [participantInfo, setParticipantInfo] = useState<{ message: string; exchanges: any[] } | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,16 +91,55 @@ export default function HomePage() {
     }
   };
 
-  const handleAccessAdmin = (e: React.FormEvent) => {
+  const handleAccessAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessId.trim()) {
-      setAccessError('Ingresa el código o ID del sorteo.');
+    setAccessError('');
+    setMultipleExchanges(null);
+    setParticipantInfo(null);
+
+    const cleanIdentifier = accessId.trim();
+    const cleanPin = accessPin.trim();
+
+    if (!cleanIdentifier) {
+      setAccessError('Ingresa el ID del sorteo o tu correo de administrador.');
       return;
     }
-    if (accessPin.trim()) {
-      localStorage.setItem(`admin_pin_${accessId.trim()}`, accessPin.trim());
+
+    setIsAccessing(true);
+    try {
+      const res = await fetch('/api/exchanges/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanIdentifier, pin: cleanPin }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo acceder al sorteo.');
+      }
+
+      if (data.type === 'participant') {
+        setParticipantInfo({
+          message: data.message,
+          exchanges: data.exchanges || [],
+        });
+        return;
+      }
+
+      if (data.exchanges && data.exchanges.length === 1) {
+        const targetExchange = data.exchanges[0];
+        if (cleanPin) {
+          localStorage.setItem(`admin_pin_${targetExchange.id}`, cleanPin);
+        }
+        router.push(`/admin/${encodeURIComponent(targetExchange.id)}`);
+      } else if (data.exchanges && data.exchanges.length > 1) {
+        setMultipleExchanges(data.exchanges);
+      }
+    } catch (err: any) {
+      setAccessError(err.message || 'Error al buscar el sorteo.');
+    } finally {
+      setIsAccessing(false);
     }
-    router.push(`/admin/${encodeURIComponent(accessId.trim())}`);
   };
 
   const copyToClipboard = (text: string, type: 'participant' | 'admin') => {
@@ -485,35 +527,110 @@ export default function HomePage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
           <div className="flex items-center gap-2.5 text-slate-800">
             <Lock className="w-5 h-5 text-pine-600" />
-            <h3 className="font-bold text-base">¿Ya tienes un sorteo creado? Acceder como Administrador</h3>
+            <div>
+              <h3 className="font-bold text-base">¿Ya creaste un sorteo? Acceder como Administrador</h3>
+              <p className="text-xs text-slate-500">Ingresa tu correo de administrador (o ID del sorteo) y tu PIN</p>
+            </div>
           </div>
 
           {accessError && (
-            <p className="text-xs font-semibold text-red-600">{accessError}</p>
+            <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium">
+              ⚠️ {accessError}
+            </div>
+          )}
+
+          {participantInfo && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 text-indigo-950 text-xs rounded-2xl space-y-2">
+              <div className="font-bold text-indigo-900 flex items-center gap-1.5">
+                <Mail className="w-4 h-4 text-indigo-600" />
+                <span>Información para Participantes</span>
+              </div>
+              <p>{participantInfo.message}</p>
+              <div className="space-y-1.5 pt-1">
+                {participantInfo.exchanges.map((ex: any, idx: number) => (
+                  <div key={idx} className="p-2.5 bg-white rounded-xl border border-indigo-100 flex items-center justify-between">
+                    <div>
+                      <strong className="block text-slate-800 font-bold">{ex.title}</strong>
+                      <span className="text-[11px] text-slate-500">
+                        {ex.status === 'completed' ? '🎉 Sorteo completado' : '⏳ En fase de registro'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => router.push(`/sorteo/${ex.id}`)}
+                      className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors"
+                    >
+                      Ver Sorteo
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {multipleExchanges && (
+            <div className="p-4 bg-amber-50 border border-amber-200 text-amber-950 text-xs rounded-2xl space-y-2">
+              <span className="font-bold text-amber-900">Tienes varios sorteos asociados a este correo. Selecciona uno:</span>
+              <div className="space-y-1.5">
+                {multipleExchanges.map((ex) => (
+                  <div key={ex.id} className="p-2.5 bg-white rounded-xl border border-amber-200 flex items-center justify-between">
+                    <div>
+                      <strong className="block text-slate-800 font-bold">{ex.title}</strong>
+                      <span className="text-[11px] text-slate-500">ID: {ex.id}</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (accessPin.trim()) {
+                          localStorage.setItem(`admin_pin_${ex.id}`, accessPin.trim());
+                        }
+                        router.push(`/admin/${encodeURIComponent(ex.id)}`);
+                      }}
+                      className="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors"
+                    >
+                      Abrir Panel
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <form onSubmit={handleAccessAdmin} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="text"
-                placeholder="ID o Código del sorteo"
-                value={accessId}
-                onChange={(e) => setAccessId(e.target.value)}
-                className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-pine-500 font-mono"
-              />
-              <input
-                type="password"
-                placeholder="PIN de Administrador"
-                value={accessPin}
-                onChange={(e) => setAccessPin(e.target.value)}
-                className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-pine-500 font-mono"
-              />
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Correo de Admin o ID del Sorteo
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ej. pilar@gmail.com o sorteo-xyz"
+                  value={accessId}
+                  onChange={(e) => setAccessId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm focus:ring-2 focus:ring-pine-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  PIN de Administrador
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="PIN secreto"
+                  value={accessPin}
+                  onChange={(e) => setAccessPin(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm focus:ring-2 focus:ring-pine-500 font-mono"
+                />
+              </div>
             </div>
+
             <button
               type="submit"
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+              disabled={isAccessing}
+              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              <span>Acceder al Panel de Control</span>
+              <span>{isAccessing ? 'Buscando sorteo...' : 'Acceder al Panel de Control'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
