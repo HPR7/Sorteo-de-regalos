@@ -22,7 +22,8 @@ import {
   Sparkles,
   MailCheck,
   Server,
-  EyeOff
+  EyeOff,
+  Share2
 } from 'lucide-react';
 import { Exchange, Participant, EmailLog, SmtpConfig, DrawVerification } from '@/types';
 
@@ -356,6 +357,13 @@ export default function AdminDashboardPage() {
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
+  const shareWhatsApp = () => {
+    const text = encodeURIComponent(
+      `🎁 ¡Hola! Te invito a unirte a nuestro intercambio de regalos "${exchange?.title}". Entra a este enlace para registrarte y anotar tus 3 opciones de regalo:\n${participantUrl}`
+    );
+    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+  };
+
   // 1. LOGIN SCREEN IF NOT AUTHENTICATED
   if (!isAuthenticated && !isLoading) {
     return (
@@ -455,11 +463,19 @@ export default function AdminDashboardPage() {
           {/* Quick Buttons */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              onClick={shareWhatsApp}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+              title="Invitar a participantes por WhatsApp"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Invitar por WhatsApp</span>
+            </button>
+            <button
               onClick={copyShareLink}
               className="px-3.5 py-2 bg-festive-600 hover:bg-festive-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
             >
               <Copy className="w-3.5 h-3.5" />
-              <span>{copiedLink ? '¡Enlace Copiado!' : 'Copiar Enlace Participantes'}</span>
+              <span>{copiedLink ? '¡Enlace Copiado!' : 'Copiar Enlace'}</span>
             </button>
             <button
               onClick={() => setShowQrModal(true)}
@@ -709,13 +725,22 @@ export default function AdminDashboardPage() {
             </div>
 
             {!isCompleted && (
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="w-full sm:w-auto px-4 py-2 bg-pine-600 hover:bg-pine-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Agregar Participante Manualmente</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={shareWhatsApp}
+                  className="flex-1 sm:flex-initial px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Invitar por WhatsApp</span>
+                </button>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex-1 sm:flex-initial px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Agregar Manualmente</span>
+                </button>
+              </div>
             )}
           </div>
 

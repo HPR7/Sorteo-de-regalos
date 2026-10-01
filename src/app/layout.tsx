@@ -40,13 +40,13 @@ export default function RootLayout({
               >
                 Crear Sorteo
               </Link>
-              <a
-                href="#admin-login"
+              <Link
+                href="/#admin-login"
                 className="text-sm font-semibold text-pine-700 bg-pine-50 hover:bg-pine-100 border border-pine-200 px-3.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5 text-pine-600" />
                 Acceso Admin
-              </a>
+              </Link>
             </nav>
           </div>
         </header>
