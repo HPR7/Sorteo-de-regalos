@@ -89,6 +89,34 @@ export default function AdminDashboardPage() {
     }
   }, [exchangeId]);
 
+  const fetchAdminDataSilent = async (pinToUse: string) => {
+    try {
+      const cleanPin = pinToUse.trim();
+      const res = await fetch(`/api/exchanges/${exchangeId}`, {
+        headers: { 'x-admin-pin': cleanPin },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExchange(data.exchange);
+        setParticipants(data.participants || []);
+        setVerification(data.verification || null);
+        setEmailLogs(data.emailLogs || []);
+      }
+    } catch {
+      // ignore background polling errors
+    }
+  };
+
+  // Real-time background auto-refresh every 4 seconds
+  useEffect(() => {
+    if (!isAuthenticated || !pin) return;
+    const timer = setInterval(() => {
+      fetchAdminDataSilent(pin);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated, pin, exchangeId]);
+
   const fetchAdminData = async (pinToUse: string) => {
     setIsLoading(true);
     setAuthError('');
@@ -98,6 +126,7 @@ export default function AdminDashboardPage() {
         headers: {
           'x-admin-pin': cleanPin,
         },
+        cache: 'no-store',
       });
 
       // If serverless instance was cold and returned 404, check if localStorage has exchange backup
@@ -116,6 +145,7 @@ export default function AdminDashboardPage() {
               headers: {
                 'x-admin-pin': cleanPin,
               },
+              cache: 'no-store',
             });
           } catch {
             // ignore sync errors

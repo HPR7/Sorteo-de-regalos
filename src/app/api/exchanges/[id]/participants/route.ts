@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getExchangeById, getParticipants, saveParticipant, deleteParticipant, saveParticipantsBulk, saveEmailLog, saveExchange } from '@/lib/db';
+import { getExchangeByIdAsync, getParticipantsAsync, saveParticipant, deleteParticipant, saveParticipantsBulk, saveEmailLog, saveExchange } from '@/lib/db';
 import { Participant } from '@/types';
 import { executeDraw } from '@/lib/draw';
 import { sendAssignmentEmail } from '@/lib/email';
@@ -10,7 +10,7 @@ export async function POST(
 ) {
   try {
     const { id } = params;
-    const exchange = getExchangeById(id);
+    const exchange = await getExchangeByIdAsync(id);
 
     if (!exchange) {
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });
@@ -23,7 +23,7 @@ export async function POST(
       );
     }
 
-    const currentParticipants = getParticipants(id);
+    const currentParticipants = await getParticipantsAsync(id);
     if (currentParticipants.length >= exchange.targetCount) {
       return NextResponse.json(
         { error: `El cupo máximo de participantes (${exchange.targetCount}) ya se ha completado.` },
@@ -137,7 +137,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = params;
-    const exchange = getExchangeById(id);
+    const exchange = await getExchangeByIdAsync(id);
 
     if (!exchange) {
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });

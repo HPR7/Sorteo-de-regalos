@@ -3,15 +3,64 @@ import path from 'path';
 import os from 'os';
 import { Exchange, Participant, EmailLog } from '@/types';
 
-// In-memory fallback if disk writes are restricted
+// In-memory store
 const memoryStore = {
   exchanges: [] as Exchange[],
   participants: [] as Participant[],
   emailLogs: [] as EmailLog[],
 };
 
+// Check if Upstash / Vercel KV is available in environment
+function getKvConfig() {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.REDIS_REST_TOKEN;
+  if (url && token) {
+    return { url, token };
+  }
+  return null;
+}
+
+// Helper for cloud KV REST calls
+async function kvGet<T>(key: string): Promise<T | null> {
+  const kv = getKvConfig();
+  if (!kv) return null;
+  try {
+    const res = await fetch(`${kv.url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${kv.token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.result) {
+      return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+    }
+  } catch (err) {
+    console.warn(`Error reading ${key} from KV:`, err);
+  }
+  return null;
+}
+
+async function kvSet<T>(key: string, value: T): Promise<boolean> {
+  const kv = getKvConfig();
+  if (!kv) return false;
+  try {
+    const serialized = JSON.stringify(value);
+    const res = await fetch(`${kv.url}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${kv.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: serialized,
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn(`Error writing ${key} to KV:`, err);
+    return false;
+  }
+}
+
 function getDataDir(): string {
-  // Check if running in a serverless environment (Vercel, AWS Lambda, Netlify, etc.)
   if (
     process.env.VERCEL ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -53,7 +102,7 @@ function ensureDataDir() {
   }
 }
 
-// Exchanges
+// Synchronous and Async Exchanges
 export function getExchanges(): Exchange[] {
   ensureDataDir();
   const { exchangesFile } = getFilePaths();
@@ -62,6 +111,12 @@ export function getExchanges(): Exchange[] {
       const data = fs.readFileSync(exchangesFile, 'utf-8');
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        // sync with memory store
+        parsed.forEach(e => {
+          if (!memoryStore.exchanges.some(me => me.id === e.id)) {
+            memoryStore.exchanges.push(e);
+          }
+        });
         return parsed;
       }
     }
@@ -71,14 +126,32 @@ export function getExchanges(): Exchange[] {
   return memoryStore.exchanges;
 }
 
+export async function getExchangesAsync(): Promise<Exchange[]> {
+  const kvData = await kvGet<Exchange[]>('sorteo:exchanges');
+  if (Array.isArray(kvData) && kvData.length > 0) {
+    kvData.forEach(e => saveExchangeLocal(e));
+    return kvData;
+  }
+  return getExchanges();
+}
+
 export function getExchangeById(id: string): Exchange | null {
   const exchanges = getExchanges();
   return exchanges.find(e => e.id === id) || memoryStore.exchanges.find(e => e.id === id) || null;
 }
 
-export function saveExchange(exchange: Exchange): void {
+export async function getExchangeByIdAsync(id: string): Promise<Exchange | null> {
+  const kvData = await kvGet<Exchange>(`sorteo:exchange:${id}`);
+  if (kvData) {
+    saveExchangeLocal(kvData);
+    return kvData;
+  }
+  const all = await getExchangesAsync();
+  return all.find(e => e.id === id) || null;
+}
+
+function saveExchangeLocal(exchange: Exchange): void {
   ensureDataDir();
-  // Update memory store
   const memIndex = memoryStore.exchanges.findIndex(e => e.id === exchange.id);
   if (memIndex >= 0) {
     memoryStore.exchanges[memIndex] = exchange;
@@ -86,7 +159,6 @@ export function saveExchange(exchange: Exchange): void {
     memoryStore.exchanges.push(exchange);
   }
 
-  // Attempt disk write
   const { exchangesFile } = getFilePaths();
   try {
     const exchanges = getExchanges();
@@ -100,6 +172,14 @@ export function saveExchange(exchange: Exchange): void {
   } catch (err) {
     console.warn('Could not write exchange to file system, retained in memory:', err);
   }
+}
+
+export function saveExchange(exchange: Exchange): void {
+  saveExchangeLocal(exchange);
+  // Async background sync to cloud KV if available
+  const all = getExchanges();
+  kvSet('sorteo:exchanges', all).catch(() => {});
+  kvSet(`sorteo:exchange:${exchange.id}`, exchange).catch(() => {});
 }
 
 // Participants
@@ -117,10 +197,12 @@ export function getParticipants(exchangeId?: string): Participant[] {
     console.warn('Error reading participants from file:', err);
   }
 
-  // Merge with memory store if needed
-  if (list.length === 0 && memoryStore.participants.length > 0) {
-    list = memoryStore.participants;
-  }
+  // Merge with memory store
+  memoryStore.participants.forEach(p => {
+    if (!list.some(lp => lp.id === p.id)) {
+      list.push(p);
+    }
+  });
 
   if (exchangeId) {
     return list.filter(p => p.exchangeId === exchangeId);
@@ -128,9 +210,18 @@ export function getParticipants(exchangeId?: string): Participant[] {
   return list;
 }
 
-export function saveParticipant(participant: Participant): void {
+export async function getParticipantsAsync(exchangeId?: string): Promise<Participant[]> {
+  const kvKey = exchangeId ? `sorteo:participants:${exchangeId}` : 'sorteo:participants';
+  const kvData = await kvGet<Participant[]>(kvKey);
+  if (Array.isArray(kvData) && kvData.length > 0) {
+    kvData.forEach(p => saveParticipantLocal(p));
+    return kvData;
+  }
+  return getParticipants(exchangeId);
+}
+
+function saveParticipantLocal(participant: Participant): void {
   ensureDataDir();
-  // Update memory store
   const memIndex = memoryStore.participants.findIndex(p => p.id === participant.id);
   if (memIndex >= 0) {
     memoryStore.participants[memIndex] = participant;
@@ -138,7 +229,6 @@ export function saveParticipant(participant: Participant): void {
     memoryStore.participants.push(participant);
   }
 
-  // Attempt disk write
   const { participantsFile } = getFilePaths();
   try {
     const participants = getParticipants();
@@ -154,38 +244,32 @@ export function saveParticipant(participant: Participant): void {
   }
 }
 
+export function saveParticipant(participant: Participant): void {
+  saveParticipantLocal(participant);
+  // Async background sync to cloud KV if available
+  const allForExchange = getParticipants(participant.exchangeId);
+  kvSet(`sorteo:participants:${participant.exchangeId}`, allForExchange).catch(() => {});
+  const allGlobal = getParticipants();
+  kvSet('sorteo:participants', allGlobal).catch(() => {});
+}
+
 export function saveParticipantsBulk(newParticipants: Participant[]): void {
   ensureDataDir();
-  // Update memory store
   newParticipants.forEach(np => {
-    const index = memoryStore.participants.findIndex(p => p.id === np.id);
-    if (index >= 0) {
-      memoryStore.participants[index] = np;
-    } else {
-      memoryStore.participants.push(np);
-    }
+    saveParticipantLocal(np);
   });
 
-  // Attempt disk write
-  const { participantsFile } = getFilePaths();
-  try {
-    const participants = getParticipants();
-    newParticipants.forEach(np => {
-      const index = participants.findIndex(p => p.id === np.id);
-      if (index >= 0) {
-        participants[index] = np;
-      } else {
-        participants.push(np);
-      }
-    });
-    fs.writeFileSync(participantsFile, JSON.stringify(participants, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('Could not write bulk participants to disk, retained in memory:', err);
+  if (newParticipants.length > 0) {
+    const exchangeId = newParticipants[0].exchangeId;
+    const allForExchange = getParticipants(exchangeId);
+    kvSet(`sorteo:participants:${exchangeId}`, allForExchange).catch(() => {});
   }
 }
 
 export function deleteParticipant(id: string): boolean {
   ensureDataDir();
+  const p = memoryStore.participants.find(p => p.id === id);
+  const exchangeId = p?.exchangeId;
   memoryStore.participants = memoryStore.participants.filter(p => p.id !== id);
 
   const { participantsFile } = getFilePaths();
@@ -194,6 +278,9 @@ export function deleteParticipant(id: string): boolean {
     const filtered = participants.filter(p => p.id !== id);
     if (filtered.length !== participants.length) {
       fs.writeFileSync(participantsFile, JSON.stringify(filtered, null, 2), 'utf-8');
+      if (exchangeId) {
+        kvSet(`sorteo:participants:${exchangeId}`, filtered.filter(p => p.exchangeId === exchangeId)).catch(() => {});
+      }
       return true;
     }
   } catch (err) {
@@ -228,6 +315,15 @@ export function getEmailLogs(exchangeId?: string): EmailLog[] {
   return list;
 }
 
+export async function getEmailLogsAsync(exchangeId?: string): Promise<EmailLog[]> {
+  const kvKey = exchangeId ? `sorteo:logs:${exchangeId}` : 'sorteo:logs';
+  const kvData = await kvGet<EmailLog[]>(kvKey);
+  if (Array.isArray(kvData) && kvData.length > 0) {
+    return kvData;
+  }
+  return getEmailLogs(exchangeId);
+}
+
 export function saveEmailLog(log: EmailLog): void {
   ensureDataDir();
   memoryStore.emailLogs.unshift(log);
@@ -237,6 +333,7 @@ export function saveEmailLog(log: EmailLog): void {
     const logs = getEmailLogs();
     logs.unshift(log);
     fs.writeFileSync(emailLogsFile, JSON.stringify(logs, null, 2), 'utf-8');
+    kvSet(`sorteo:logs:${log.exchangeId}`, logs.filter(l => l.exchangeId === log.exchangeId)).catch(() => {});
   } catch (err) {
     console.warn('Could not write email log to disk, retained in memory:', err);
   }

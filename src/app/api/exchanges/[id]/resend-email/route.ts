@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getExchangeById, getParticipants, saveParticipant, saveEmailLog } from '@/lib/db';
+import { getExchangeByIdAsync, getParticipantsAsync, saveParticipant, saveEmailLog } from '@/lib/db';
 import { sendAssignmentEmail } from '@/lib/email';
 
 export async function POST(
@@ -8,14 +8,14 @@ export async function POST(
 ) {
   try {
     const { id } = params;
-    const exchange = getExchangeById(id);
+    const exchange = await getExchangeByIdAsync(id);
 
     if (!exchange) {
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });
     }
 
-    const adminPin = req.headers.get('x-admin-pin');
-    if (!adminPin || adminPin !== exchange.adminPin) {
+    const adminPin = req.headers.get('x-admin-pin')?.trim();
+    if (!adminPin || adminPin !== exchange.adminPin?.trim()) {
       return NextResponse.json({ error: 'PIN de administrador no autorizado' }, { status: 401 });
     }
 
@@ -24,7 +24,7 @@ export async function POST(
       return NextResponse.json({ error: 'ID de participante no proporcionado' }, { status: 400 });
     }
 
-    const participants = getParticipants(id);
+    const participants = await getParticipantsAsync(id);
     const giver = participants.find(p => p.id === participantId);
 
     if (!giver) {

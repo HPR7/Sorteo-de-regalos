@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getExchangeById, getParticipants, getEmailLogs, saveExchange } from '@/lib/db';
+import { getExchangeByIdAsync, getParticipantsAsync, getEmailLogsAsync, saveExchange } from '@/lib/db';
 import { DrawVerification } from '@/types';
 
 export async function GET(
@@ -8,13 +8,13 @@ export async function GET(
 ) {
   try {
     const { id } = params;
-    const exchange = getExchangeById(id);
+    const exchange = await getExchangeByIdAsync(id);
 
     if (!exchange) {
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });
     }
 
-    const participants = getParticipants(id);
+    const participants = await getParticipantsAsync(id);
     const adminPin = req.headers.get('x-admin-pin')?.trim();
     const isAdmin = !!adminPin && adminPin === exchange.adminPin?.trim();
 
@@ -58,7 +58,7 @@ export async function GET(
       }));
 
       // Email logs for admin (Audit trail with secret recipient hidden)
-      const rawEmailLogs = getEmailLogs(id);
+      const rawEmailLogs = await getEmailLogsAsync(id);
       const sanitizedEmailLogs = rawEmailLogs.map(log => ({
         id: log.id,
         exchangeId: log.exchangeId,
@@ -112,7 +112,7 @@ export async function PUT(
 ) {
   try {
     const { id } = params;
-    const exchange = getExchangeById(id);
+    const exchange = await getExchangeByIdAsync(id);
 
     if (!exchange) {
       return NextResponse.json({ error: 'Sorteo no encontrado' }, { status: 404 });
